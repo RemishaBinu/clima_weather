@@ -94,7 +94,7 @@ class HomeScreen extends StatelessWidget {
                                 'Updated just now • Clima Phase 1 Mock Data',
                                 style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(
-                                      color: AppColors.textTertiary,
+                                      color: const Color.fromARGB(255, 254, 0, 0),
                                       fontSize: 12,
                                     ),
                               ),
