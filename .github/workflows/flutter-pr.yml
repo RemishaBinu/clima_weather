@@ -1,0 +1,121 @@
+
+name: Flutter Android PR CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: flutter-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  flutter-ci:
+    name: Flutter Android Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze Flutter code
+        run: flutter analyze
+
+      - name: Run Flutter tests
+        run: flutter test --reporter expanded
+
+      - name: Build Android APK
+        run: flutter build apk --debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-android-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  pr-report:
+    name: Publish PR Build Report
+    runs-on: ubuntu-latest
+    needs: flutter-ci
+    if: always() && github.event.pull_request.head.repo.full_name == github.repository
+
+    permissions:
+      pull-requests: write
+      actions: read
+
+    steps:
+      - name: Publish PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = '${{ needs.flutter-ci.result }}';
+            const success = result === 'success';
+
+            const runUrl =
+              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const artifactUrl = `${runUrl}#artifacts`;
+
+            const body = [
+              '## 🤖 Flutter Android CI Report',
+              '',
+              `**Status:** ${success ? '✅ PASSED' : '❌ FAILED'}`,
+              '',
+              '| CI Step | Result |',
+              '|---|---|',
+              `| Flutter analysis | ${success ? 'Completed' : 'Check logs'} |`,
+              `| Flutter tests | ${success ? 'Passed' : 'Check logs'} |`,
+              `| Android APK build | ${success ? 'Successful' : 'Failed or skipped'} |`,
+              '',
+              success
+                ? `[📦 Download Debug APK](${artifactUrl})`
+                : `[🔍 View workflow logs](${runUrl})`,
+              '',
+              '_Flutter CI runs automatically whenever this PR is updated._'
+            ].join('\n');
+
+            const { data: comments } =
+              await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number
+              });
+
+            const existing = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Flutter Android CI Report')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
